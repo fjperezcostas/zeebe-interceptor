@@ -1,0 +1,57 @@
+zeebe:
+  broker:
+    gateway:
+      enable: true
+      network:
+        port: 26500
+
+      security:
+        enabled: false
+        authentication:
+          mode: none
+      interceptors: 
+        - id: trace-interceptor
+          className: org.example.TraceInterceptor
+          jarPath: /usr/local/zeebe/zeebe-interceptor-1.0.0.jar
+        - id: auth-interceptor
+          className: org.example.AuthInterceptor
+          jarPath: /usr/local/zeebe/zeebe-interceptor-1.0.0.jar
+
+    network:
+      host: 0.0.0.0
+
+    data:
+      directory: data
+      logSegmentSize: 128MB
+      snapshotPeriod: 15m
+
+    cluster:
+      clusterSize: 1
+      replicationFactor: 1
+      partitionsCount: 1
+
+    threads:
+      cpuThreadCount: 2
+      ioThreadCount: 2
+
+camunda:
+  operate:
+    elasticsearch:
+      clusterName: elasticsearch
+      url: http://localhost:9200
+    zeebe:
+      gatewayAddress: localhost:26500
+    zeebeElasticsearch:
+      clusterName: elasticsearch
+      url: http://localhost:9200
+      prefix: zeebe-record
+  tasklist:
+    elasticsearch:
+      clusterName: elasticsearch
+      url: http://localhost:9200
+    zeebe:
+      gatewayAdress: localhost:26500
+    zeebeElasticsearch:
+      clusterName: elasticsearch
+      url: http://localhost:9200
+      prefix: zeebe-record
