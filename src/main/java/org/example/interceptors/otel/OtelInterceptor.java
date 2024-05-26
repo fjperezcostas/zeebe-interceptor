@@ -1,35 +1,43 @@
-package org.example;
+package org.example.interceptors.otel;
 
 import io.grpc.Metadata;
 import io.grpc.ServerCall;
 import io.grpc.ServerCallHandler;
 import io.grpc.ServerInterceptor;
 import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
 import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
 import io.opentelemetry.context.propagation.ContextPropagators;
 import io.opentelemetry.context.propagation.TextMapGetter;
-import io.opentelemetry.exporter.logging.LoggingSpanExporter;
+import io.opentelemetry.exporter.otlp.trace.OtlpGrpcSpanExporter;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.resources.Resource;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
-import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import io.opentelemetry.sdk.trace.export.BatchSpanProcessor;
 import org.slf4j.MDC;
 
-public final class TraceInterceptor implements ServerInterceptor {
+import javax.annotation.Nonnull;
 
-    private final Logger log = LoggerFactory.getLogger(TraceInterceptor.class);
+import static org.example.interceptors.otel.OtelProps.*;
+
+public final class OtelInterceptor implements ServerInterceptor {
+
     private final TextMapGetter<Metadata> getter;
 
-    public TraceInterceptor() {
-        final Resource resource = Resource.getDefault().toBuilder().build();
+    public OtelInterceptor() {
+        final Resource resource = Resource.getDefault()
+                .merge(Resource.create(Attributes.of(AttributeKey.stringKey("service.name"), "zeebe-gateway")));
         final SdkTracerProvider sdkTracerProvider = SdkTracerProvider.builder()
-                .addSpanProcessor(SimpleSpanProcessor.create(LoggingSpanExporter.create()))
+                .addSpanProcessor(BatchSpanProcessor.builder(OtlpGrpcSpanExporter.builder()
+                                .setEndpoint("http://jaeger:4317")
+                                .build())
+                        .build())
                 .setResource(resource)
                 .build();
         final W3CTraceContextPropagator propagator = W3CTraceContextPropagator.getInstance();
@@ -38,38 +46,33 @@ public final class TraceInterceptor implements ServerInterceptor {
                 .setPropagators(ContextPropagators.create(propagator))
                 .buildAndRegisterGlobal();
         getter = new TextMapGetter<>() {
-            @Override
-            public Iterable<String> keys(Metadata carrier) {
+            public Iterable<String> keys(@Nonnull Metadata carrier) {
                 return carrier.keys();
             }
-
-            @Override
-            public String get(Metadata carrier, String key) {
+            public String get(Metadata carrier, @Nonnull String key) {
                 return carrier.get(Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER));
             }
         };
     }
 
-    public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(
-            final ServerCall<ReqT, RespT> call,
-            final Metadata headers,
-            final ServerCallHandler<ReqT, RespT> next) {
-        Context parentCtx = GlobalOpenTelemetry
+    public <T, U> ServerCall.Listener<T> interceptCall(ServerCall<T, U> call, Metadata headers, ServerCallHandler<T, U> next) {
+        final Context parentCtx = GlobalOpenTelemetry
                 .getPropagators()
                 .getTextMapPropagator()
                 .extract(Context.current(), headers, getter);
         final Tracer tracer = GlobalOpenTelemetry.getTracer("zeebe-gateway");
         final Span span = tracer.spanBuilder("zeebe-span").setParent(parentCtx).startSpan();
         final SpanContext ctx = span.getSpanContext();
-        MDC.put("traceId", ctx.getTraceId());
-        MDC.put("spanId", ctx.getSpanId());
-        MDC.put("traceFlags", ctx.getTraceFlags().toString());
-        log.info("configured tracer successfully");
-        try {
-            return next.startCall(call, headers);
+        MDC.put(TRACE_ID, ctx.getTraceId());
+        MDC.put(SPAN_ID, ctx.getSpanId());
+        MDC.put(TRACE_FLAGS, ctx.getTraceFlags().toString());
+        try (Scope ignored = span.makeCurrent()) {
+            final ServerCall.Listener<T> delegate = next.startCall(new OtelServerCall<>(call, MDC.getCopyOfContextMap()), headers);
+            return new OtelListener<>(delegate, span);
         } finally {
-            MDC.clear();
-            span.end();
+            MDC.remove(TRACE_ID);
+            MDC.remove(SPAN_ID);
+            MDC.remove(TRACE_FLAGS);
         }
     }
 }

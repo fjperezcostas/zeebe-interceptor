@@ -8,6 +8,6 @@ mvn clean package
 echo -e "${YELLOW}[INFO] building Docker image...${NC}"
 docker build -t fjpc/zeebe:1.0.0 .
 echo -e "${YELLOW}[INFO] shutdown current local deployment...${NC}"
-docker rm -f zeebe operate elasticsearch tasklist connectors
+docker rm -f zeebe operate elasticsearch tasklist connectors jaeger
 echo -e "${YELLOW}[INFO] deploy local docker-compose...${NC}"
 docker-compose -f docker/docker-compose.yaml up -d
