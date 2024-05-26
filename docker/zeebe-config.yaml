@@ -10,12 +10,12 @@ zeebe:
         authentication:
           mode: none
       interceptors: 
-        - id: trace-interceptor
-          className: org.example.TraceInterceptor
-          jarPath: /usr/local/zeebe/zeebe-interceptor-1.0.0.jar
+        - id: otel-interceptor
+          className: org.example.interceptors.otel.OtelInterceptor
+          jarPath: /usr/local/zeebe/zeebe-interceptor-2.0.0.jar
         - id: auth-interceptor
-          className: org.example.AuthInterceptor
-          jarPath: /usr/local/zeebe/zeebe-interceptor-1.0.0.jar
+          className: org.example.interceptors.auth.AuthInterceptor
+          jarPath: /usr/local/zeebe/zeebe-interceptor-2.0.0.jar
 
     network:
       host: 0.0.0.0
